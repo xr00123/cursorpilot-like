@@ -1,1 +1,0 @@
-# cursorpilot-like
