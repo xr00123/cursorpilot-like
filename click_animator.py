@@ -229,6 +229,7 @@ class ClickAnimatorApp:
 
     def update_config(self, cfg): self.config = cfg
     def shutdown(self):
+        print("程序已退出")
         self._running = False
         for l in self._listeners: l.stop()
         self.root.quit()

@@ -3,7 +3,7 @@
 可编辑的设置 UI：在不影响后台运行的前提下，提供点击特效的样式/颜色/大小/时长等配置。
 
 依赖：
-  pip install pynput
+  pip install pynput customtkinter
 
 运行：
   python main.py
@@ -15,13 +15,18 @@
 from __future__ import annotations
 
 import tkinter as tk
-from tkinter import colorchooser, ttk
+from tkinter import colorchooser
+import customtkinter as ctk
 
 from click_animator import AppConfig, ClickAnimatorApp, setup_dpi
 
 
+ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
+ctk.set_default_color_theme("blue")  # Themes: "blue" (standard), "green", "dark-blue"
+
+
 PRESETS = {
-    "cyan_ring": {
+    "圆环": {
         "style": "ring",
         "color": "#00c8ff",
         "base_radius": 18,
@@ -33,7 +38,7 @@ PRESETS = {
         "particle_size": 2,
         "opacity": 1.0,
     },
-    "white_circle": {
+    "圆": {
         "style": "circle",
         "color": "#ffffff",
         "base_radius": 12,
@@ -45,7 +50,7 @@ PRESETS = {
         "particle_size": 0,
         "opacity": 0.6,
     },
-    "pink_particle": {
+    "粒子": {
         "style": "particle",
         "color": "#ff4fd8",
         "base_radius": 16,
@@ -59,6 +64,9 @@ PRESETS = {
     },
 }
 
+STYLE_MAP_CN = {"ring": "圆环", "particle": "粒子", "circle": "圆"}
+STYLE_MAP_EN = {"圆环": "ring", "粒子": "particle", "圆": "circle"}
+
 
 def _parse_rgb(s: str):
     s = s.strip()
@@ -71,26 +79,25 @@ def _parse_rgb(s: str):
 
 
 class SettingsUI:
-    def __init__(self, win: tk.Toplevel, app_root: tk.Tk) -> None:
-        self.win = win
-        self.app_root = app_root
-        self.win.title("点击特效设置")
-        self.win.geometry("450x550")
-        self.win.resizable(False, False)
+    def __init__(self, root: ctk.CTk) -> None:
+        self.root = root
+        self.root.title("点击特效设置")
+        self.root.geometry("460x600")
+        self.root.resizable(False, False)
 
-        self.var_preset = tk.StringVar(value="cyan_ring")
-        self.var_style = tk.StringVar(value=PRESETS["cyan_ring"]["style"])
-        self.var_color = tk.StringVar(value=PRESETS["cyan_ring"]["color"])
-        self.var_base = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["base_radius"]))
-        self.var_max = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["max_radius"]))
-        self.var_duration = tk.DoubleVar(value=PRESETS["cyan_ring"]["duration_sec"])
-        self.var_fps = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["fps"]))
-        self.var_particles = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["particle_count"]))
+        self.var_preset = tk.StringVar(value="圆环")
+        self.var_style = tk.StringVar(value=STYLE_MAP_CN[PRESETS["圆环"]["style"]])
+        self.var_color = tk.StringVar(value=PRESETS["圆环"]["color"])
+        self.var_base = tk.DoubleVar(value=float(PRESETS["圆环"]["base_radius"]))
+        self.var_max = tk.DoubleVar(value=float(PRESETS["圆环"]["max_radius"]))
+        self.var_duration = tk.DoubleVar(value=PRESETS["圆环"]["duration_sec"])
+        self.var_fps = tk.DoubleVar(value=float(PRESETS["圆环"]["fps"]))
+        self.var_particles = tk.DoubleVar(value=float(PRESETS["圆环"]["particle_count"]))
         
         # New vars
-        self.var_ring_width = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["ring_width"]))
-        self.var_particle_size = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["particle_size"]))
-        self.var_opacity = tk.DoubleVar(value=float(PRESETS["cyan_ring"]["opacity"]))
+        self.var_ring_width = tk.DoubleVar(value=float(PRESETS["圆环"]["ring_width"]))
+        self.var_particle_size = tk.DoubleVar(value=float(PRESETS["圆环"]["particle_size"]))
+        self.var_opacity = tk.DoubleVar(value=float(PRESETS["圆环"]["opacity"]))
 
         self.txt_base = tk.StringVar()
         self.txt_max = tk.StringVar()
@@ -102,7 +109,13 @@ class SettingsUI:
         self.txt_opacity = tk.StringVar()
 
         cfg = self._build_config(run_seconds=0.0)
-        self.app = ClickAnimatorApp(cfg, root=self.app_root, with_ui=False, on_toggle_settings=self._toggle_visibility)
+        # Note: ClickAnimatorApp will withdraw the root if with_ui=False.
+        # We need to force with_ui=True here to prevent ClickAnimatorApp from hiding our main window,
+        # or we must ensure we deiconify it properly after.
+        # Since we manage the UI ourselves, we can pass with_ui=True but handle the root carefully.
+        # However, ClickAnimatorApp treats root as the thing to withdraw.
+        # Let's pass with_ui=True to prevent it from calling root.withdraw().
+        self.app = ClickAnimatorApp(cfg, root=self.root, with_ui=True, on_toggle_settings=self._toggle_visibility)
         self.app.start_background()
 
         self.row_widgets = {} # To store widget lists by row index or name
@@ -110,11 +123,15 @@ class SettingsUI:
         self._build_ui()
         self._refresh_value_labels()
         self._update_visibility() # Initial visibility update
-        self.win.protocol("WM_DELETE_WINDOW", self._on_exit)
+        
+        # Ensure window is shown
+        self.root.deiconify()
+        
+        self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
 
     def _toggle_visibility(self) -> None:
         try:
-            state = str(self.win.state())
+            state = str(self.root.state())
         except Exception:
             return
 
@@ -125,35 +142,46 @@ class SettingsUI:
 
     def _hide_window(self) -> None:
         try:
-            self.win.withdraw()
+            self.root.withdraw()
         except Exception:
             pass
 
     def _show_window(self) -> None:
         try:
-            self.win.deiconify()
-            self.win.lift()
+            self.root.deiconify()
+            self.root.lift()
         except Exception:
             pass
 
     def _build_ui(self) -> None:
-        frm = ttk.Frame(self.win, padding=12)
-        frm.pack(fill=tk.BOTH, expand=True)
+        # Main container
+        main_frame = ctk.CTkFrame(self.root)
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
 
-        lf = ttk.LabelFrame(frm, text="点击特效", padding=10)
-        lf.pack(fill=tk.BOTH, expand=True)
+        # Settings group
+        # Using a Frame with a label to simulate LabelFrame or just use CTkLabel
+        title_label = ctk.CTkLabel(main_frame, text="特效参数配置", font=ctk.CTkFont(size=16, weight="bold"))
+        title_label.pack(pady=(10, 5), anchor="w", padx=10)
+        
+        lf = ctk.CTkFrame(main_frame)
+        lf.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
+        
+        # Grid configuration for lf
+        lf.columnconfigure(1, weight=1)
 
         row = 0
 
-        # Helper to create scale with entry
+        # Helper to create slider with entry
         def create_slider_row(name, label, var, from_, to_, txt_var, row_idx):
-            lbl = ttk.Label(lf, text=label)
-            lbl.grid(row=row_idx, column=0, sticky="w", pady=(10, 0))
-            s = ttk.Scale(lf, from_=from_, to=to_, variable=var, command=lambda _v: self._sync_config())
-            s.grid(row=row_idx, column=1, sticky="we", padx=8, pady=(10, 0))
+            lbl = ctk.CTkLabel(lf, text=label)
+            lbl.grid(row=row_idx, column=0, sticky="w", padx=(15, 5), pady=10)
             
-            e = ttk.Entry(lf, textvariable=txt_var, width=6)
-            e.grid(row=row_idx, column=2, sticky="e", pady=(10, 0))
+            # CTkSlider passes value to command, but we can also rely on variable
+            s = ctk.CTkSlider(lf, from_=from_, to=to_, variable=var, command=lambda _v: self._sync_config())
+            s.grid(row=row_idx, column=1, sticky="we", padx=5, pady=10)
+            
+            e = ctk.CTkEntry(lf, textvariable=txt_var, width=60)
+            e.grid(row=row_idx, column=2, sticky="e", padx=(5, 15), pady=10)
             
             def on_entry_change(event):
                 try:
@@ -168,22 +196,33 @@ class SettingsUI:
             
             self.row_widgets[name] = [lbl, s, e]
 
-        ttk.Label(lf, text="预设：").grid(row=row, column=0, sticky="w")
-        cb = ttk.Combobox(lf, textvariable=self.var_preset, values=list(PRESETS.keys()), state="readonly", width=16)
-        cb.grid(row=row, column=1, sticky="w", padx=8)
-        cb.bind("<<ComboboxSelected>>", lambda _e: self._apply_preset())
+        # Preset
+        ctk.CTkLabel(lf, text="预设：").grid(row=row, column=0, sticky="w", padx=(15, 5), pady=10)
+        
+        def on_preset_change(value):
+            self.var_preset.set(value)
+            self._apply_preset()
+
+        cb = ctk.CTkComboBox(lf, values=list(PRESETS.keys()), variable=self.var_preset, command=on_preset_change)
+        cb.grid(row=row, column=1, sticky="w", padx=5, pady=10)
         row += 1
 
-        ttk.Label(lf, text="样式：").grid(row=row, column=0, sticky="w", pady=(10, 0))
-        cb_style = ttk.Combobox(lf, textvariable=self.var_style, values=["ring", "particle", "circle"], state="readonly", width=16)
-        cb_style.grid(row=row, column=1, sticky="w", padx=8, pady=(10, 0))
-        cb_style.bind("<<ComboboxSelected>>", lambda _e: self._sync_config())
+        # Style
+        ctk.CTkLabel(lf, text="样式：").grid(row=row, column=0, sticky="w", padx=(15, 5), pady=10)
+        
+        def on_style_change(value):
+            self.var_style.set(value)
+            self._sync_config()
+            
+        cb_style = ctk.CTkComboBox(lf, values=list(STYLE_MAP_EN.keys()), variable=self.var_style, command=on_style_change)
+        cb_style.grid(row=row, column=1, sticky="w", padx=5, pady=10)
         row += 1
 
-        ttk.Label(lf, text="颜色：").grid(row=row, column=0, sticky="w", pady=(10, 0))
-        btn_color = tk.Button(lf, text="选择…", width=10, command=self._pick_color, bg=self.var_color.get())
-        btn_color.grid(row=row, column=1, sticky="w", padx=8, pady=(10, 0))
-        self._btn_color = btn_color
+        # Color
+        ctk.CTkLabel(lf, text="颜色：").grid(row=row, column=0, sticky="w", padx=(15, 5), pady=10)
+        
+        self.btn_color = ctk.CTkButton(lf, text="选择颜色", width=100, command=self._pick_color, fg_color=self.var_color.get())
+        self.btn_color.grid(row=row, column=1, sticky="w", padx=5, pady=10)
         row += 1
         
         create_slider_row("opacity", "透明度：", self.var_opacity, 0.1, 1.0, self.txt_opacity, row); row += 1
@@ -195,21 +234,20 @@ class SettingsUI:
         create_slider_row("particle_count", "粒子数量：", self.var_particles, 0, 100, self.txt_particles, row); row += 1
         create_slider_row("fps", "帧率：", self.var_fps, 30, 120, self.txt_fps, row); row += 1
         
-        lf.columnconfigure(1, weight=1)
-
-        sep = ttk.Separator(frm, orient=tk.HORIZONTAL)
-        sep.pack(fill=tk.X, pady=10)
-
-        btns = ttk.Frame(frm)
-        btns.pack(fill=tk.X)
-        ttk.Button(btns, text="最小化", command=self._hide_window).pack(side=tk.LEFT)
-        ttk.Button(btns, text="退出", command=self._on_exit).pack(side=tk.RIGHT)
-        ttk.Label(frm, text="全局热键：Ctrl+Shift+S 显示/隐藏设置；Ctrl+Shift+Q 退出", foreground="gray").pack(pady=(8, 0))
+        # Footer buttons
+        btns_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
+        btns_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        ctk.CTkButton(btns_frame, text="最小化", command=self._hide_window, width=100).pack(side=tk.LEFT)
+        ctk.CTkButton(btns_frame, text="退出", command=self._on_exit, width=100, fg_color="red", hover_color="#8B0000").pack(side=tk.RIGHT)
+        
+        ctk.CTkLabel(main_frame, text="全局热键：Ctrl+Shift+S 显示/隐藏设置；Ctrl+Shift+Q 退出", 
+                     text_color="gray", font=ctk.CTkFont(size=12)).pack(pady=(0, 10))
 
 
     def _apply_preset(self) -> None:
-        p = PRESETS.get(self.var_preset.get(), PRESETS["cyan_ring"])
-        self.var_style.set(p["style"])
+        p = PRESETS.get(self.var_preset.get(), PRESETS["圆环"])
+        self.var_style.set(STYLE_MAP_CN[p["style"]])
         self.var_color.set(p["color"])
         self.var_base.set(float(p["base_radius"]))
         self.var_max.set(float(p["max_radius"]))
@@ -220,20 +258,21 @@ class SettingsUI:
         self.var_particle_size.set(float(p.get("particle_size", 2)))
         self.var_opacity.set(float(p.get("opacity", 1.0)))
         
-        self._btn_color.configure(bg=self.var_color.get())
+        self.btn_color.configure(fg_color=self.var_color.get())
         self._sync_config()
 
     def _pick_color(self) -> None:
+        # CustomTkinter doesn't have a color chooser, use tk's
         rgb, hexv = colorchooser.askcolor(color=self.var_color.get())
         if not hexv:
             return
         self.var_color.set(hexv)
-        self._btn_color.configure(bg=hexv)
+        self.btn_color.configure(fg_color=hexv)
         self._sync_config()
 
     def _build_config(self, run_seconds: float) -> AppConfig:
         return AppConfig(
-            style=self.var_style.get(),
+            style=STYLE_MAP_EN.get(self.var_style.get(), "ring"),
             color=_parse_rgb(self.var_color.get()),
             base_radius=max(0, int(float(self.var_base.get()))),
             max_radius=max(10, int(float(self.var_max.get()))),
@@ -266,7 +305,8 @@ class SettingsUI:
             return
 
     def _update_visibility(self):
-        style = self.var_style.get()
+        style_cn = self.var_style.get()
+        style = STYLE_MAP_EN.get(style_cn, "ring")
         
         def show(name):
             if name in self.row_widgets:
@@ -299,22 +339,18 @@ class SettingsUI:
             self.app.shutdown()
         except: pass
         try:
-            self.win.destroy()
-        except: pass
-        try:
-            self.app_root.destroy()
+            self.root.destroy()
         except: pass
 
 def main() -> int:
     setup_dpi()
-    app_root = tk.Tk()
-    try:
-        app_root.withdraw()
-    except Exception:
-        pass
-    win = tk.Toplevel(app_root)
-    SettingsUI(win, app_root)
-    app_root.mainloop()
+    # Use CTk instead of Tk
+    app = ctk.CTk()
+    # Initially hide if needed, but we rely on SettingsUI to manage logic
+    # Actually ClickAnimatorApp will hide it, then SettingsUI will show it.
+    
+    SettingsUI(app)
+    app.mainloop()
     return 0
 
 
