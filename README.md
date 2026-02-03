@@ -1,18 +1,27 @@
 # cursorpilot-like
 
-一个轻量级鼠标点击特效/叠层工具（CursorPilot 风格）。
+一个轻量级鼠标点击特效/叠层工具（CursorPilot 风格），专为 Windows 优化。
 
-## 运行
+## 快速开始
 
-ClickAnimator（Tk，每次点击生成短生命周期小窗）：
+### 方式一：一键运行（推荐）
+直接双击运行目录下的 `run.bat` 文件。
+它会自动安装依赖并启动设置界面。
 
-```bash
-python click_animator_ui.py
-```
+### 方式二：命令行手动运行
 
-ClickFX（Pygame 全屏叠层）：
+1. **安装依赖**
+   ```bash
+   pip install -r requirements.txt
+   ```
 
-```bash
-python main_ui.py
-```
+2. **启动程序**
+   - 带设置面板（推荐）：
+     ```bash
+     python main.py
+     ```
+   - 仅后台运行：
+     ```bash
+     python click_animator.py
+     ```
 

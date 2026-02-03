@@ -29,7 +29,7 @@ python click_animator.py
 如果你希望像 cursorpilot 那样“开着一个设置面板随时改颜色/大小/样式”，运行：
 
 ```bash
-python click_animator_ui.py
+python main.py
 ```
 
 窗口里的参数会实时作用于后续点击产生的动画。
@@ -63,22 +63,6 @@ python click_animator.py --style burst --color #ffaa00 --particles 30 --duration
 python click_animator.py --run-seconds 2
 ```
 
-## macOS 权限说明（重要）
-
-在 macOS 上，全局鼠标/键盘监听通常需要授权，否则会看到类似：
-`This process is not trusted! Input event monitoring will not be possible ...`
-
-处理方法（不同版本系统名称略有差异）：
-- 系统设置 → 隐私与安全性 → 输入监控（Input Monitoring）/辅助功能（Accessibility）
-- 把你运行脚本的终端（如 Terminal / iTerm / VS Code / PyCharm）加入允许列表
-- 重新运行脚本
-
-如果出现 Quartz/pyobjc 相关异常（例如 pynput 报错），可尝试升级：
-
-```bash
-pip install -U pyobjc-framework-Quartz pynput
-```
-
 ## Windows 说明
 
 - 脚本会尝试设置进程 DPI Awareness，以减少高 DPI 下坐标偏移。
@@ -86,4 +70,4 @@ pip install -U pyobjc-framework-Quartz pynput
 
 ## 文件
 
-- [click_animator.py](file:///Users/hxr/Documents/python_workspace/study/click_animator.py)：主程序
+- [click_animator.py](file:///Users/hxr/Documents/python_workspace/cursorpilot-like/click_animator.py)：主程序
