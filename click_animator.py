@@ -36,8 +36,12 @@ class Particle:
 class EffectWindow:
     def __init__(self, root: tk.Tk, x: int, y: int, config: AppConfig):
         self.root = root; self.config = config; self.created_at = time.monotonic()
-        size = int(config.max_radius * 2)
-        left, top = int(x - config.max_radius), int(y - config.max_radius)
+        
+        # 增加内边距防止圆环粗细或粒子超出边界导致被遮挡
+        padding = max(config.ring_width, config.particle_size) + 5
+        size = int((config.max_radius + padding) * 2)
+        
+        left, top = int(x - size/2), int(y - size/2)
         self._title = f"CA-{random.randint(100000, 999999)}"
 
         self.win = tk.Toplevel(root)
@@ -47,11 +51,21 @@ class EffectWindow:
         self.win.title(self._title)
         
         bg_color = "#000001"
-        self.win.configure(bg=bg_color)
-        if sys.platform == "win32":
-            self.win.wm_attributes("-transparentcolor", bg_color)
-            self.win.wm_attributes("-topmost", True)
-            self.win.wm_attributes("-toolwindow", True)
+        
+        if sys.platform == "darwin":
+            # MacOS 特有透明背景设置
+            try:
+                self.win.wm_attributes("-transparent", True)
+                self.win.configure(bg="systemTransparent")
+                bg_color = "systemTransparent"
+            except Exception:
+                self.win.configure(bg=bg_color)
+        else:
+            self.win.configure(bg=bg_color)
+            if sys.platform == "win32":
+                self.win.wm_attributes("-transparentcolor", bg_color)
+                self.win.wm_attributes("-topmost", True)
+                self.win.wm_attributes("-toolwindow", True)
         
         # Apply initial opacity
         self.win.attributes("-alpha", self.config.opacity)
@@ -139,6 +153,13 @@ class EffectWindow:
         if self.item:
             r = self.config.base_radius + (self.config.max_radius - self.config.base_radius) * t
             self.canvas.coords(self.item, self.cx-r, self.cy-r, self.cx+r, self.cy+r)
+            
+            # Windows 特殊处理：使用宽度衰减代替透明度淡出
+            if sys.platform == "win32" and self.config.style == "ring" and p > 0.5:
+                # 宽度随时间变细
+                decay_factor = 1.0 - (p - 0.5) * 2
+                new_width = max(0, self.config.ring_width * decay_factor)
+                self.canvas.itemconfigure(self.item, width=new_width)
 
         # 更新粒子
         if self.particles:
@@ -169,12 +190,14 @@ class EffectWindow:
                 self.particles.remove(dp)
 
         # 透明度渐变 (仅在后半段开始淡出，提升前半段观感)
-        alpha_decay = 1.0
-        if p > 0.5:
-            alpha_decay = 1.0 - (p - 0.5) * 2
-        
-        final_alpha = self.config.opacity * alpha_decay
-        self.win.attributes("-alpha", final_alpha)
+        # Windows 上禁用动态 Alpha 淡出以避免透明色穿透失效（显示方框）
+        if sys.platform != "win32":
+            alpha_decay = 1.0
+            if p > 0.5:
+                alpha_decay = 1.0 - (p - 0.5) * 2
+            
+            final_alpha = self.config.opacity * alpha_decay
+            self.win.attributes("-alpha", final_alpha)
         
         self.win.after(int(1000/self.config.fps), self._tick)
 
