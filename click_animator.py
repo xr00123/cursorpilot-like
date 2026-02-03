@@ -7,7 +7,9 @@ import random
 import sys
 import time
 import math
-from dataclasses import dataclass
+import json
+import os
+from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional, Tuple, Callable
 import tkinter as tk
 
@@ -20,11 +22,57 @@ except ImportError:
     print("请安装依赖: pip install pynput")
     sys.exit(1)
 
-@dataclass(frozen=True)
+@dataclass
 class AppConfig:
     style: str; color: Tuple[int, int, int]; base_radius: int; max_radius: int
     duration_sec: float; fps: int; particle_count: int; quit_hotkey: str; run_seconds: float
     ring_width: int = 3; particle_size: int = 2; opacity: float = 1.0
+
+def _get_config_path(filename: str) -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), filename)
+
+def save_settings(current_style_key: str, configs: Dict[str, AppConfig], filename: str = "user_config.json"):
+    path = _get_config_path(filename)
+    try:
+        # Convert configs map to dict of dicts
+        configs_data = {k: asdict(v) for k, v in configs.items()}
+        data = {
+            "current_style": current_style_key,
+            "configs": configs_data
+        }
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2)
+        log(f"配置已保存至 {path}")
+    except Exception as e:
+        log(f"保存配置失败: {e}")
+
+def load_settings(filename: str = "user_config.json") -> Optional[Tuple[str, Dict[str, AppConfig]]]:
+    path = _get_config_path(filename)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        
+        current_style = data.get("current_style", "圆环")
+        configs_data = data.get("configs", {})
+        
+        valid_keys = AppConfig.__annotations__.keys()
+        parsed_configs = {}
+        
+        for key, cfg_data in configs_data.items():
+            # 恢复 tuple 类型
+            if "color" in cfg_data and isinstance(cfg_data["color"], list):
+                cfg_data["color"] = tuple(cfg_data["color"])
+            
+            # 过滤有效字段
+            filtered_data = {k: v for k, v in cfg_data.items() if k in valid_keys}
+            parsed_configs[key] = AppConfig(**filtered_data)
+            
+        return current_style, parsed_configs
+    except Exception as e:
+        log(f"加载配置失败: {e}")
+        return None
 
 @dataclass
 class Particle:
@@ -252,6 +300,8 @@ class ClickAnimatorApp:
 
     def update_config(self, cfg): self.config = cfg
     def shutdown(self):
+        # 注意：此处由 main.py 负责保存配置，因为 main.py 拥有完整的配置集合
+        # 如果是直接运行 click_animator.py，目前不提供保存功能，或需要后续改进
         print("程序已退出")
         self._running = False
         for l in self._listeners: l.stop()

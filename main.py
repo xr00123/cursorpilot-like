@@ -14,11 +14,15 @@
 
 from __future__ import annotations
 
+import os
+import threading
 import tkinter as tk
 from tkinter import colorchooser
 import customtkinter as ctk
+import pystray
+from PIL import Image, ImageTk
 
-from click_animator import AppConfig, ClickAnimatorApp, setup_dpi
+from click_animator import AppConfig, ClickAnimatorApp, setup_dpi, load_settings, save_settings
 
 
 ctk.set_appearance_mode("System")  # Modes: "System" (standard), "Dark", "Light"
@@ -85,20 +89,63 @@ class SettingsUI:
         self.root.geometry("460x600")
         self.root.resizable(False, False)
 
-        self.var_preset = tk.StringVar(value="圆环")
-        self.var_style = tk.StringVar(value=STYLE_MAP_CN[PRESETS["圆环"]["style"]])
-        self.var_color = tk.StringVar(value=PRESETS["圆环"]["color"])
-        self.var_base = tk.DoubleVar(value=float(PRESETS["圆环"]["base_radius"]))
-        self.var_max = tk.DoubleVar(value=float(PRESETS["圆环"]["max_radius"]))
-        self.var_duration = tk.DoubleVar(value=PRESETS["圆环"]["duration_sec"])
-        self.var_fps = tk.DoubleVar(value=float(PRESETS["圆环"]["fps"]))
-        self.var_particles = tk.DoubleVar(value=float(PRESETS["圆环"]["particle_count"]))
+        # Set application icon
+        try:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
+            # iconphoto is more cross-platform compatible for runtime window icon
+            img_icon = Image.open(icon_path)
+            self.root.wm_iconphoto(True, ImageTk.PhotoImage(img_icon))
+        except Exception as e:
+            print(f"Warning: Failed to set window icon: {e}")
+
+        # 1. Load settings or use defaults
+        self.current_style_name = "圆环"
+        self.configs = {}
+        
+        loaded = load_settings()
+        if loaded:
+            self.current_style_name, self.configs = loaded
+        
+        # Ensure all presets exist in configs (fill missing with defaults)
+        for name, p_data in PRESETS.items():
+            if name not in self.configs:
+                # Convert dict to AppConfig
+                # We need to handle default values that might be missing in PRESETS dict
+                # But PRESETS dicts seem complete enough for now
+                cfg_kwargs = p_data.copy()
+                # Parse color if it is string
+                if isinstance(cfg_kwargs["color"], str):
+                    cfg_kwargs["color"] = _parse_rgb(cfg_kwargs["color"])
+                
+                # Fill missing fields with defaults from AppConfig if necessary
+                # Here we assume PRESETS keys match AppConfig fields mostly
+                
+                # Create a temporary default config to get defaults
+                # But simpler is to just construct it.
+                # Let's ensure we have all required fields.
+                # AppConfig requires: style, color, base_radius, max_radius, duration_sec, fps, particle_count, quit_hotkey, run_seconds
+                if "quit_hotkey" not in cfg_kwargs: cfg_kwargs["quit_hotkey"] = "ctrl+shift+q"
+                if "run_seconds" not in cfg_kwargs: cfg_kwargs["run_seconds"] = 0.0
+                
+                self.configs[name] = AppConfig(**cfg_kwargs)
+
+        # 2. Init UI Variables with current config
+        cur_cfg = self.configs.get(self.current_style_name, self.configs["圆环"])
+        
+        self.var_preset = tk.StringVar(value=self.current_style_name)
+        self.var_style = tk.StringVar(value=STYLE_MAP_CN.get(cur_cfg.style, "圆环"))
+        self.var_color = tk.StringVar(value="#{:02x}{:02x}{:02x}".format(*cur_cfg.color))
+        self.var_base = tk.DoubleVar(value=float(cur_cfg.base_radius))
+        self.var_max = tk.DoubleVar(value=float(cur_cfg.max_radius))
+        self.var_duration = tk.DoubleVar(value=cur_cfg.duration_sec)
+        self.var_fps = tk.DoubleVar(value=float(cur_cfg.fps))
+        self.var_particles = tk.DoubleVar(value=float(cur_cfg.particle_count))
         
         # New vars
-        self.var_ring_width = tk.DoubleVar(value=float(PRESETS["圆环"]["ring_width"]))
-        self.var_particle_size = tk.DoubleVar(value=float(PRESETS["圆环"]["particle_size"]))
-        self.var_opacity = tk.DoubleVar(value=float(PRESETS["圆环"]["opacity"]))
-
+        self.var_ring_width = tk.DoubleVar(value=float(cur_cfg.ring_width))
+        self.var_particle_size = tk.DoubleVar(value=float(cur_cfg.particle_size))
+        self.var_opacity = tk.DoubleVar(value=cur_cfg.opacity)
+        
         self.txt_base = tk.StringVar()
         self.txt_max = tk.StringVar()
         self.txt_duration = tk.StringVar()
@@ -108,14 +155,9 @@ class SettingsUI:
         self.txt_particle_size = tk.StringVar()
         self.txt_opacity = tk.StringVar()
 
-        cfg = self._build_config(run_seconds=0.0)
-        # Note: ClickAnimatorApp will withdraw the root if with_ui=False.
-        # We need to force with_ui=True here to prevent ClickAnimatorApp from hiding our main window,
-        # or we must ensure we deiconify it properly after.
-        # Since we manage the UI ourselves, we can pass with_ui=True but handle the root carefully.
-        # However, ClickAnimatorApp treats root as the thing to withdraw.
-        # Let's pass with_ui=True to prevent it from calling root.withdraw().
-        self.app = ClickAnimatorApp(cfg, root=self.root, with_ui=True, on_toggle_settings=self._toggle_visibility)
+        # 3. Start App
+        # Note: We pass the CURRENT config to the app
+        self.app = ClickAnimatorApp(cur_cfg, root=self.root, with_ui=True, on_toggle_settings=self._toggle_visibility)
         self.app.start_background()
 
         self.row_widgets = {} # To store widget lists by row index or name
@@ -127,7 +169,60 @@ class SettingsUI:
         # Ensure window is shown
         self.root.deiconify()
         
-        self.root.protocol("WM_DELETE_WINDOW", self._on_exit)
+        self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
+        self.tray_icon = None
+
+    def _minimize_to_tray(self) -> None:
+        self._hide_window()
+        if self.tray_icon is None:
+            threading.Thread(target=self._run_tray, daemon=True).start()
+
+    def _run_tray(self) -> None:
+        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
+        try:
+            image = Image.open(image_path)
+        except Exception as e:
+            print(f"Failed to load icon: {e}")
+            # Fallback to a simple colored block if icon missing
+            image = Image.new('RGB', (64, 64), color = (73, 109, 137))
+
+        menu = pystray.Menu(
+            pystray.MenuItem("显示", self._show_from_tray, default=True),
+            pystray.MenuItem("退出", self._quit_app)
+        )
+
+        self.tray_icon = pystray.Icon("CursorPilot", image, "CursorPilot", menu)
+        self.tray_icon.run()
+
+    def _show_from_tray(self, icon=None, item=None) -> None:
+        if self.tray_icon:
+            self.tray_icon.stop()
+            self.tray_icon = None
+        
+        # Must be called from main thread
+        self.root.after(0, self._show_window)
+
+    def _quit_app(self, icon=None, item=None) -> None:
+        if self.tray_icon:
+            self.tray_icon.stop()
+            self.tray_icon = None
+        
+        # Schedule the actual shutdown on the main thread
+        self.root.after(0, self._perform_shutdown)
+
+    def _perform_shutdown(self) -> None:
+        try:
+            # Update current config one last time
+            self.configs[self.current_style_name] = self._build_config(0.0)
+            save_settings(self.current_style_name, self.configs)
+        except Exception: pass
+        
+        try:
+            self.app.shutdown()
+        except: pass
+        try:
+            self.root.destroy()
+        except: pass
 
     def _toggle_visibility(self) -> None:
         try:
@@ -138,7 +233,7 @@ class SettingsUI:
         if state in {"withdrawn", "iconic"}:
             self._show_window()
         else:
-            self._hide_window()
+            self._minimize_to_tray()
 
     def _hide_window(self) -> None:
         try:
@@ -147,6 +242,13 @@ class SettingsUI:
             pass
 
     def _show_window(self) -> None:
+        if self.tray_icon:
+            icon = self.tray_icon
+            self.tray_icon = None
+            try:
+                icon.stop()
+            except: pass
+
         try:
             self.root.deiconify()
             self.root.lift()
@@ -207,17 +309,6 @@ class SettingsUI:
         cb.grid(row=row, column=1, sticky="w", padx=5, pady=10)
         row += 1
 
-        # Style
-        ctk.CTkLabel(lf, text="样式：").grid(row=row, column=0, sticky="w", padx=(15, 5), pady=10)
-        
-        def on_style_change(value):
-            self.var_style.set(value)
-            self._sync_config()
-            
-        cb_style = ctk.CTkComboBox(lf, values=list(STYLE_MAP_EN.keys()), variable=self.var_style, command=on_style_change)
-        cb_style.grid(row=row, column=1, sticky="w", padx=5, pady=10)
-        row += 1
-
         # Color
         ctk.CTkLabel(lf, text="颜色：").grid(row=row, column=0, sticky="w", padx=(15, 5), pady=10)
         
@@ -238,25 +329,35 @@ class SettingsUI:
         btns_frame = ctk.CTkFrame(main_frame, fg_color="transparent")
         btns_frame.pack(fill=tk.X, padx=10, pady=10)
         
-        ctk.CTkButton(btns_frame, text="最小化", command=self._hide_window, width=100).pack(side=tk.LEFT)
-        ctk.CTkButton(btns_frame, text="退出", command=self._on_exit, width=100, fg_color="red", hover_color="#8B0000").pack(side=tk.RIGHT)
+        ctk.CTkButton(btns_frame, text="最小化", command=self._minimize_to_tray, width=100).pack(side=tk.LEFT)
+        ctk.CTkButton(btns_frame, text="退出", command=self._perform_shutdown, width=100, fg_color="red", hover_color="#8B0000").pack(side=tk.RIGHT)
         
         ctk.CTkLabel(main_frame, text="全局热键：Ctrl+Shift+S 显示/隐藏设置；Ctrl+Shift+Q 退出", 
                      text_color="gray", font=ctk.CTkFont(size=12)).pack(pady=(0, 10))
 
 
     def _apply_preset(self) -> None:
-        p = PRESETS.get(self.var_preset.get(), PRESETS["圆环"])
-        self.var_style.set(STYLE_MAP_CN[p["style"]])
-        self.var_color.set(p["color"])
-        self.var_base.set(float(p["base_radius"]))
-        self.var_max.set(float(p["max_radius"]))
-        self.var_duration.set(p["duration_sec"])
-        self.var_fps.set(float(p["fps"]))
-        self.var_particles.set(float(p["particle_count"]))
-        self.var_ring_width.set(float(p.get("ring_width", 3)))
-        self.var_particle_size.set(float(p.get("particle_size", 2)))
-        self.var_opacity.set(float(p.get("opacity", 1.0)))
+        # Save current settings to current style config before switching
+        old_style = self.current_style_name
+        self.configs[old_style] = self._build_config(0.0)
+        
+        # Switch to new style
+        new_style = self.var_preset.get()
+        self.current_style_name = new_style
+        
+        # Load settings from memory
+        p = self.configs.get(new_style, self.configs["圆环"])
+        
+        self.var_style.set(STYLE_MAP_CN.get(p.style, "圆环"))
+        self.var_color.set("#{:02x}{:02x}{:02x}".format(*p.color))
+        self.var_base.set(float(p.base_radius))
+        self.var_max.set(float(p.max_radius))
+        self.var_duration.set(p.duration_sec)
+        self.var_fps.set(float(p.fps))
+        self.var_particles.set(float(p.particle_count))
+        self.var_ring_width.set(float(p.ring_width))
+        self.var_particle_size.set(float(p.particle_size))
+        self.var_opacity.set(float(p.opacity))
         
         self.btn_color.configure(fg_color=self.var_color.get())
         self._sync_config()
@@ -333,14 +434,6 @@ class SettingsUI:
             hide("particle_size")
             hide("particle_count")
             show("base_radius")
-
-    def _on_exit(self) -> None:
-        try:
-            self.app.shutdown()
-        except: pass
-        try:
-            self.root.destroy()
-        except: pass
 
 def main() -> int:
     setup_dpi()

@@ -17,4 +17,5 @@ env/
 dist/
 build/
 *.egg-info/
+user_config.json
 
