@@ -90,23 +90,6 @@ class SettingsUI:
         self.root.geometry("460x600")
         self.root.resizable(False, False)
 
-        # Set application icon
-        try:
-            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
-            
-            # 1. For Windows Taskbar Icon (Important for separating from Python icon)
-            # Try to set iconbitmap which is standard for Windows .ico
-            try:
-                self.root.iconbitmap(icon_path)
-            except Exception:
-                pass
-
-            # 2. Cross-platform runtime window icon
-            img_icon = Image.open(icon_path)
-            self.root.wm_iconphoto(True, ImageTk.PhotoImage(img_icon))
-        except Exception as e:
-            print(f"Warning: Failed to set window icon: {e}")
-
         # 1. Load settings or use defaults
         self.current_style_name = "圆环"
         self.configs = {}
@@ -470,6 +453,26 @@ def main() -> int:
     setup_dpi()
     # Use CTk instead of Tk
     app = ctk.CTk()
+
+    # Set application icon globally
+    try:
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
+        
+        # 1. For Windows Titlebar & Taskbar (Standard .ico)
+        try:
+            app.iconbitmap(icon_path)
+        except Exception:
+            pass
+
+        # 2. Cross-platform runtime window icon (Linux/macOS + Windows fallback)
+        try:
+            img_icon = Image.open(icon_path)
+            app.wm_iconphoto(True, ImageTk.PhotoImage(img_icon))
+        except Exception:
+            pass
+    except Exception as e:
+        print(f"Warning: Failed to set app icon: {e}")
+    
     # Initially hide if needed, but we rely on SettingsUI to manage logic
     # Actually ClickAnimatorApp will hide it, then SettingsUI will show it.
     
