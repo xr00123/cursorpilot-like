@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import os
 import threading
+import ctypes
 import tkinter as tk
 from tkinter import colorchooser
 import customtkinter as ctk
@@ -92,7 +93,15 @@ class SettingsUI:
         # Set application icon
         try:
             icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
-            # iconphoto is more cross-platform compatible for runtime window icon
+            
+            # 1. For Windows Taskbar Icon (Important for separating from Python icon)
+            # Try to set iconbitmap which is standard for Windows .ico
+            try:
+                self.root.iconbitmap(icon_path)
+            except Exception:
+                pass
+
+            # 2. Cross-platform runtime window icon
             img_icon = Image.open(icon_path)
             self.root.wm_iconphoto(True, ImageTk.PhotoImage(img_icon))
         except Exception as e:
@@ -436,6 +445,14 @@ class SettingsUI:
             show("base_radius")
 
 def main() -> int:
+    # Windows Taskbar Icon Fix
+    try:
+        # 任意唯一字符串
+        myappid = 'cursorpilot.click.animator.v1' 
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
+    except Exception:
+        pass
+
     setup_dpi()
     # Use CTk instead of Tk
     app = ctk.CTk()
