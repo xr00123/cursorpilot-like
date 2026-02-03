@@ -179,12 +179,23 @@ class SettingsUI:
         self.root.deiconify()
         
         self.root.protocol("WM_DELETE_WINDOW", self._minimize_to_tray)
+        self.root.bind("<Unmap>", self._on_unmap)
         self.tray_icon = None
 
     def _minimize_to_tray(self) -> None:
         self._hide_window()
         if self.tray_icon is None:
             threading.Thread(target=self._run_tray, daemon=True).start()
+
+    def _on_unmap(self, event) -> None:
+        # Check if the event is for the root window
+        if event.widget == self.root:
+            try:
+                # If window is minimized (iconic), hide it to tray
+                if self.root.state() == 'iconic':
+                    self._minimize_to_tray()
+            except Exception:
+                pass
 
     def _run_tray(self) -> None:
         image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "icon", "favicon1.ico")
@@ -232,6 +243,9 @@ class SettingsUI:
         try:
             self.root.destroy()
         except: pass
+        
+        # Force exit to ensure no background processes remain
+        os._exit(0)
 
     def _toggle_visibility(self) -> None:
         try:
