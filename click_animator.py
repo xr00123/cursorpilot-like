@@ -261,6 +261,15 @@ class ClickAnimatorApp:
 
     def start_background(self):
         log("后台监听启动...")
+        can_listen = True
+        if sys.platform == "darwin":
+            try:
+                import Quartz  # type: ignore
+                _ = Quartz.CFMachPortCreateRunLoopSource
+            except Exception as e:
+                log(f"macOS 全局监听不可用，将仅启动设置界面: {e}")
+                can_listen = False
+
         def on_click(x, y, button, pressed):
             if not pressed: self._queue.put(("click", (int(x), int(y))))
         
@@ -279,10 +288,15 @@ class ClickAnimatorApp:
         def _kp(k): self._pressed.add(k); on_press(k)
         def _kr(k): self._pressed.discard(k)
 
-        ml = mouse.Listener(on_click=on_click)
-        kl = keyboard.Listener(on_press=_kp, on_release=_kr)
-        ml.start(); kl.start()
-        self._listeners = [ml, kl]
+        if can_listen:
+            try:
+                ml = mouse.Listener(on_click=on_click)
+                kl = keyboard.Listener(on_press=_kp, on_release=_kr)
+                ml.start(); kl.start()
+                self._listeners = [ml, kl]
+            except Exception as e:
+                log(f"启动全局监听失败，将仅启动设置界面: {e}")
+                self._listeners = []
         self._poll()
 
     def _poll(self):
